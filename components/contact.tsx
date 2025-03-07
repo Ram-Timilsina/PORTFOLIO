@@ -118,7 +118,7 @@ export default function Contact() {
                 <CardContent>
                   <CardDescription className="text-foreground">
                     <a
-                      href="tel:+1234567890"
+                      href="tel:9869203810"
                       className="hover:text-primary transition-colors"
                     >
                       +977 9869203810

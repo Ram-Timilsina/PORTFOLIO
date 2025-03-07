@@ -1,8 +1,16 @@
-"use client"
+"use client";
 
-import { useEffect, useRef } from "react"
-import { motion } from "framer-motion"
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from "@/components/ui/chart"
+import { useEffect, useRef } from "react";
+import { motion } from "framer-motion";
+
+import {
+  Radar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  ResponsiveContainer,
+} from "@/components/ui/chart";
+import AnimatedMarquee from "./AnimatedMarque";
 
 // Sample skills data
 const skills = [
@@ -12,7 +20,7 @@ const skills = [
   { name: "UX Research", value: 75 },
   { name: "Animation", value: 70 },
   { name: "Marketing", value: 65 },
-]
+];
 
 const technicalSkills = [
   { name: "Figma", level: 95 },
@@ -21,39 +29,41 @@ const technicalSkills = [
   { name: "JavaScript", level: 80 },
   { name: "React", level: 75 },
   { name: "Node.js", level: 70 },
-]
+];
 
 export default function Skills() {
-  const progressRefs = useRef<(HTMLDivElement | null)[]>([])
+  const progressRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            const index = progressRefs.current.findIndex((ref) => ref === entry.target)
+            const index = progressRefs.current.findIndex(
+              (ref) => ref === entry.target
+            );
             if (index !== -1) {
-              const target = entry.target as HTMLDivElement
-              const level = technicalSkills[index].level
-              target.style.width = `${level}%`
-              target.style.opacity = "1"
+              const target = entry.target as HTMLDivElement;
+              const level = technicalSkills[index].level;
+              target.style.width = `${level}%`;
+              target.style.opacity = "1";
             }
           }
-        })
+        });
       },
-      { threshold: 0.1 },
-    )
+      { threshold: 0.1 }
+    );
 
     progressRefs.current.forEach((ref) => {
-      if (ref) observer.observe(ref)
-    })
+      if (ref) observer.observe(ref);
+    });
 
     return () => {
       progressRefs.current.forEach((ref) => {
-        if (ref) observer.unobserve(ref)
-      })
-    }
-  }, [])
+        if (ref) observer.unobserve(ref);
+      });
+    };
+  }, []);
 
   return (
     <section id="skills" className="py-20">
@@ -75,7 +85,8 @@ export default function Skills() {
             viewport={{ once: true }}
             transition={{ duration: 0.5, delay: 0.1 }}
           >
-            A comprehensive overview of my professional capabilities and technical proficiencies.
+            A comprehensive overview of my professional capabilities and
+            technical proficiencies.
           </motion.p>
         </div>
 
@@ -88,7 +99,9 @@ export default function Skills() {
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <h3 className="text-xl font-bold mb-6 text-center">Core Competencies</h3>
+            <h3 className="text-xl font-bold mb-6 text-center">
+              Core Competencies
+            </h3>
             <div className="h-[400px]">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart cx="50%" cy="50%" outerRadius="80%" data={skills}>
@@ -114,13 +127,17 @@ export default function Skills() {
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <h3 className="text-xl font-bold mb-6 text-center">Technical Proficiencies</h3>
+            <h3 className="text-xl font-bold mb-6 text-center">
+              Technical Proficiencies
+            </h3>
             <div className="space-y-6">
               {technicalSkills.map((skill, index) => (
                 <div key={skill.name} className="space-y-2">
                   <div className="flex justify-between">
                     <span className="font-medium">{skill.name}</span>
-                    <span className="text-muted-foreground">{skill.level}%</span>
+                    <span className="text-muted-foreground">
+                      {skill.level}%
+                    </span>
                   </div>
                   <div className="h-2 bg-muted rounded-full overflow-hidden">
                     <div
@@ -134,8 +151,10 @@ export default function Skills() {
             </div>
           </motion.div>
         </div>
+        <div>
+          <AnimatedMarquee />
+        </div>
       </div>
     </section>
-  )
+  );
 }
-
