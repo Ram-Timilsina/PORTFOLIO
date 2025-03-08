@@ -92,7 +92,7 @@ export default function Contact() {
                 <CardContent>
                   <CardDescription className="text-foreground">
                     <a
-                      href="mailto:hello@example.com"
+                      href="mailto:mail@ram-timilsina.com.np"
                       className="hover:text-primary transition-colors"
                     >
                       ramtimilsina16@gmail.com

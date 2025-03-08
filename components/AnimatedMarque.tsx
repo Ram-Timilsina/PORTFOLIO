@@ -3,11 +3,10 @@ interface icontype {
   name: string;
   imageSrc: string;
 }
-[];
 const AnimatedMarquee = () => {
   const icons: icontype = [
     {
-      name: "Resgzdsact",
+      name: "React",
       imageSrc: "./Images/React-Light.svg",
     },
   ];
