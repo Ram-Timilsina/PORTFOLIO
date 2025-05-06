@@ -141,7 +141,9 @@ export default function Skills() {
                   </div>
                   <div className="h-2 bg-muted rounded-full overflow-hidden">
                     <div
-                      ref={(el) => (progressRefs.current[index] = el)}
+                      ref={(el) => {
+                        progressRefs.current[index] = el;
+                      }}
                       className="h-full bg-primary rounded-full transition-all duration-1000 ease-out opacity-0"
                       style={{ width: "0%" }}
                     ></div>
