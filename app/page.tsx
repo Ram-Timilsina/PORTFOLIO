@@ -8,7 +8,6 @@ import Contact from "@/components/contact";
 import Footer from "@/components/footer";
 import { ThemeProvider } from "@/components/theme-provider";
 import Snowfall from "react-snowfall";
-import { SnowflakeIcon } from "lucide-react";
 export default function Home() {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
