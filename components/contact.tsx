@@ -27,6 +27,8 @@ const RATE_LIMIT_CONFIG = {
 interface SubmissionRecord {
   timestamp: number;
   ip: string;
+  fingerprint: string;
+  sessionId: string;
 }
 
 export default function Contact() {
@@ -39,11 +41,82 @@ export default function Contact() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userIp, setUserIp] = useState<string>("");
+  const [fingerprint, setFingerprint] = useState<string>("");
+  const [sessionId, setSessionId] = useState<string>("");
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  // Fetch user's IP address on component mount
+  // Generate session ID (persists for browser session)
+  const generateSessionId = (): string => {
+    let sessionId = sessionStorage.getItem("form_session_id");
+    if (!sessionId) {
+      sessionId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+      sessionStorage.setItem("form_session_id", sessionId);
+    }
+    return sessionId;
+  };
+
+  // Generate comprehensive browser fingerprint
+  const generateBrowserFingerprint = (): string => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    let canvasHash = "";
+    
+    if (ctx) {
+      ctx.textBaseline = "top";
+      ctx.font = "14px 'Arial'";
+      ctx.fillText("Browser fingerprint", 2, 2);
+      canvasHash = canvas.toDataURL().substring(0, 50);
+    }
+
+    const fingerprint = {
+      userAgent: navigator.userAgent,
+      language: navigator.language,
+      languages: navigator.languages?.join(",") || "",
+      platform: navigator.platform,
+      hardwareConcurrency: navigator.hardwareConcurrency || 0,
+      deviceMemory: (navigator as any).deviceMemory || 0,
+      screenResolution: `${screen.width}x${screen.height}`,
+      colorDepth: screen.colorDepth,
+      pixelRatio: window.devicePixelRatio,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timezoneOffset: new Date().getTimezoneOffset(),
+      canvas: canvasHash,
+      cookieEnabled: navigator.cookieEnabled,
+      doNotTrack: navigator.doNotTrack || "unspecified",
+      plugins: Array.from(navigator.plugins || []).map(p => p.name).join(","),
+    };
+
+    const fingerprintString = JSON.stringify(fingerprint);
+    return btoa(fingerprintString).substring(0, 40);
+  };
+
+  // Initialize all tracking mechanisms
   useEffect(() => {
-    fetchUserIP();
+    const init = async () => {
+      // Generate fingerprint immediately
+      const fp = generateBrowserFingerprint();
+      setFingerprint(fp);
+
+      // Generate/retrieve session ID
+      const sid = generateSessionId();
+      setSessionId(sid);
+
+      // Try to fetch IP
+      try {
+        const response = await fetch("https://api.ipify.org?format=json");
+        const data = await response.json();
+        setUserIp(data.ip);
+      } catch (error) {
+        console.error("Error fetching IP:", error);
+        // Use fingerprint as fallback
+        setUserIp(fp);
+      }
+
+      setIsInitialized(true);
+    };
+
+    init();
   }, []);
 
   // Cooldown timer effect
@@ -62,46 +135,51 @@ export default function Contact() {
     }
   }, [cooldownRemaining]);
 
-  const fetchUserIP = async () => {
-    try {
-      // Using ipify API to get user's IP
-      const response = await fetch("https://api.ipify.org?format=json");
-      const data = await response.json();
-      setUserIp(data.ip);
-    } catch (error) {
-      console.error("Error fetching IP:", error);
-      // Fallback: use a browser fingerprint or session ID
-      setUserIp(generateBrowserFingerprint());
-    }
-  };
-
-  // Generate a browser fingerprint as fallback
-  const generateBrowserFingerprint = (): string => {
-    const fingerprint = `${navigator.userAgent}-${navigator.language}-${screen.colorDepth}-${screen.width}x${screen.height}`;
-    return btoa(fingerprint).substring(0, 20);
-  };
-
-  // Get submission history from localStorage
+  // Get submission history from localStorage with integrity check
   const getSubmissionHistory = (): SubmissionRecord[] => {
     try {
       const history = localStorage.getItem("formSubmissions");
-      return history ? JSON.parse(history) : [];
+      const checksum = localStorage.getItem("formSubmissions_checksum");
+      
+      if (!history) return [];
+
+      const parsed = JSON.parse(history);
+      
+      // Verify checksum to detect tampering
+      const calculatedChecksum = btoa(history).substring(0, 20);
+      if (checksum && checksum !== calculatedChecksum) {
+        // Data was tampered with, reset everything
+        console.warn("Submission history tampered with, resetting...");
+        localStorage.removeItem("formSubmissions");
+        localStorage.removeItem("formSubmissions_checksum");
+        return [];
+      }
+
+      return parsed;
     } catch (error) {
       console.error("Error reading submission history:", error);
       return [];
     }
   };
 
-  // Save submission to localStorage
-  const saveSubmission = (ip: string) => {
+  // Save submission with checksum
+  const saveSubmission = (ip: string, fp: string, sid: string) => {
     try {
       const history = getSubmissionHistory();
       const newSubmission: SubmissionRecord = {
         timestamp: Date.now(),
         ip: ip,
+        fingerprint: fp,
+        sessionId: sid,
       };
       history.push(newSubmission);
-      localStorage.setItem("formSubmissions", JSON.stringify(history));
+      
+      const historyString = JSON.stringify(history);
+      localStorage.setItem("formSubmissions", historyString);
+      
+      // Create checksum to prevent tampering
+      const checksum = btoa(historyString).substring(0, 20);
+      localStorage.setItem("formSubmissions_checksum", checksum);
     } catch (error) {
       console.error("Error saving submission:", error);
     }
@@ -115,20 +193,34 @@ export default function Contact() {
       (record) => now - record.timestamp < RATE_LIMIT_CONFIG.timeWindow
     );
     
-    // Update localStorage with cleaned data
-    localStorage.setItem("formSubmissions", JSON.stringify(cleaned));
+    if (cleaned.length !== history.length) {
+      const cleanedString = JSON.stringify(cleaned);
+      localStorage.setItem("formSubmissions", cleanedString);
+      const checksum = btoa(cleanedString).substring(0, 20);
+      localStorage.setItem("formSubmissions_checksum", checksum);
+    }
+    
     return cleaned;
   };
 
-  // Check if user can submit
+  // Multi-layer check: IP, fingerprint, and session ID
   const canSubmit = (): { allowed: boolean; message: string; remainingTime?: number } => {
-    if (!userIp) {
-      return { allowed: false, message: "Unable to verify your connection. Please refresh the page." };
+    if (!isInitialized) {
+      return { allowed: false, message: "Initializing security checks..." };
+    }
+
+    if (!userIp || !fingerprint || !sessionId) {
+      return { allowed: false, message: "Unable to verify your identity. Please refresh the page." };
     }
 
     const recentSubmissions = cleanOldSubmissions();
+    
+    // Check against IP, fingerprint, OR session ID (any match counts)
     const userSubmissions = recentSubmissions.filter(
-      (record) => record.ip === userIp
+      (record) => 
+        record.ip === userIp || 
+        record.fingerprint === fingerprint || 
+        record.sessionId === sessionId
     );
 
     // Check if user is in cooldown period
@@ -144,11 +236,17 @@ export default function Contact() {
           remainingTime: remainingTime,
         };
       } else {
-        // Cooldown period has passed, clear old submissions for this IP
+        // Cooldown period has passed, clear old submissions for this user
         const updatedHistory = recentSubmissions.filter(
-          (record) => record.ip !== userIp
+          (record) => 
+            record.ip !== userIp && 
+            record.fingerprint !== fingerprint && 
+            record.sessionId !== sessionId
         );
-        localStorage.setItem("formSubmissions", JSON.stringify(updatedHistory));
+        const historyString = JSON.stringify(updatedHistory);
+        localStorage.setItem("formSubmissions", historyString);
+        const checksum = btoa(historyString).substring(0, 20);
+        localStorage.setItem("formSubmissions_checksum", checksum);
         return { allowed: true, message: "You can submit now." };
       }
     }
@@ -184,6 +282,13 @@ export default function Contact() {
       return;
     }
 
+    // Re-verify fingerprint at submission time to prevent manipulation
+    const currentFingerprint = generateBrowserFingerprint();
+    if (currentFingerprint !== fingerprint) {
+      alert("Security verification failed. Please refresh the page.");
+      return;
+    }
+
     // Check rate limit
     const submitCheck = canSubmit();
     if (!submitCheck.allowed) {
@@ -207,8 +312,8 @@ export default function Contact() {
         }
       );
 
-      // Save submission record
-      saveSubmission(userIp);
+      // Save submission record with all tracking data
+      saveSubmission(userIp, fingerprint, sessionId);
 
       alert("Message sent successfully!");
       
@@ -224,6 +329,8 @@ export default function Contact() {
       const updatedCheck = canSubmit();
       if (updatedCheck.allowed) {
         console.log(updatedCheck.message);
+      } else if (updatedCheck.remainingTime) {
+        setCooldownRemaining(updatedCheck.remainingTime);
       }
 
     } catch (error) {
@@ -305,7 +412,7 @@ export default function Contact() {
                 </CardHeader>
                 <CardContent>
                   <CardDescription className="text-foreground">
-                    <a
+<a
                       href="tel:+9779869203810"
                       className="hover:text-primary transition-colors"
                     >
@@ -355,17 +462,26 @@ export default function Contact() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-6">
+                {/* Initialization status */}
+                {!isInitialized && (
+                  <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-800 rounded-md">
+                    <p className="text-sm text-gray-800 dark:text-gray-200">
+                      🔒 Initializing security checks...
+                    </p>
+                  </div>
+                )}
+
                 {/* Rate limit warning */}
                 {cooldownRemaining > 0 && (
-                  <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
-                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      ⏱️ Please wait {formatTimeRemaining(cooldownRemaining)} before submitting again.
+                  <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                    <p className="text-sm text-red-800 dark:text-red-200 font-semibold">
+                      ⏱️ Submission limit reached. Please wait {formatTimeRemaining(cooldownRemaining)} before trying again.
                     </p>
                   </div>
                 )}
 
                 {/* Submission status */}
-                {submitStatus.allowed && !isSubmitting && (
+                {submitStatus.allowed && !isSubmitting && isInitialized && (
                   <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
                     <p className="text-sm text-blue-800 dark:text-blue-200">
                       ℹ️ {submitStatus.message}
@@ -386,7 +502,7 @@ export default function Contact() {
                         value={formState.name}
                         onChange={handleChange}
                         required
-                        disabled={!submitStatus.allowed || isSubmitting}
+                        disabled={!submitStatus.allowed || isSubmitting || !isInitialized}
                       />
                     </div>
                     <div className="space-y-2">
@@ -401,7 +517,7 @@ export default function Contact() {
                         value={formState.email}
                         onChange={handleChange}
                         required
-                        disabled={!submitStatus.allowed || isSubmitting}
+                        disabled={!submitStatus.allowed || isSubmitting || !isInitialized}
                       />
                     </div>
                   </div>
@@ -417,7 +533,7 @@ export default function Contact() {
                       value={formState.subject}
                       onChange={handleChange}
                       required
-                      disabled={!submitStatus.allowed || isSubmitting}
+                      disabled={!submitStatus.allowed || isSubmitting || !isInitialized}
                     />
                   </div>
 
@@ -433,16 +549,16 @@ export default function Contact() {
                       value={formState.message}
                       onChange={handleChange}
                       required
-                      disabled={!submitStatus.allowed || isSubmitting}
+                      disabled={!submitStatus.allowed || isSubmitting || !isInitialized}
                     />
                   </div>
 
                   <Button
                     type="submit"
                     className="w-full"
-                    disabled={!submitStatus.allowed || isSubmitting}
+                    disabled={!submitStatus.allowed || isSubmitting || !isInitialized}
                   >
-                    {isSubmitting ? "Sending..." : "Send Message"}
+                    {isSubmitting ? "Sending..." : !isInitialized ? "Initializing..." : "Send Message"}
                     <Send className="ml-2 h-4 w-4" />
                   </Button>
                 </form>
